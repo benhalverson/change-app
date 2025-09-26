@@ -1,10 +1,12 @@
 import React, { Suspense, useMemo, useState } from "react";
 import * as THREE from "three";
+
 import { Environment, Grid, OrbitControls, useCursor } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { DeformableMesh } from "./DeformableMesh";
 import { LabeledNumber } from './LabeledNumber';
+
 export const Shaper = () => {
 	const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
 	const [material, setMaterial] = useState("#000000");

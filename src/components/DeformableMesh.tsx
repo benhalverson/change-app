@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import type { Shader } from 'three';
+type Shader = Parameters<THREE.Material['onBeforeCompile']>[0];
+
 export const DeformableMesh = ({
 	geometry,
 	scaleVector,
@@ -22,8 +23,7 @@ export const DeformableMesh = ({
 			uMinY: { value: 0 },
 			uHeight: { value: 1 },
 			uScale: { value: new THREE.Vector3(1, 1, 1) },
-		}),
-		[]
+		}), []
 	);
 
 	useEffect(() => {
@@ -49,14 +49,15 @@ export const DeformableMesh = ({
 	}, [geometry, uniforms]);
 
 	const onBeforeCompile = (shader: Shader) => {
-		shader.uniforms.uTwist = uniforms.uTwist;
-		shader.uniforms.uBend = uniforms.uBend;
-		shader.uniforms.uTaper = uniforms.uTaper;
-		shader.uniforms.uMinY = uniforms.uMinY;
-		shader.uniforms.uHeight = uniforms.uHeight;
-		shader.uniforms.uScale = uniforms.uScale;
+		const s = shader as ShaderLike;
+		s.uniforms.uTwist = uniforms.uTwist;
+		s.uniforms.uBend = uniforms.uBend;
+		s.uniforms.uTaper = uniforms.uTaper;
+		s.uniforms.uMinY = uniforms.uMinY;
+		s.uniforms.uHeight = uniforms.uHeight;
+		s.uniforms.uScale = uniforms.uScale;
 
-		shader.vertexShader = shader.vertexShader
+		s.vertexShader = s.vertexShader
 			.replace(
 				`#include <common>`,
 				`
@@ -129,3 +130,9 @@ interface Mesh {
 	onPointerOver: () => void;
 	onPointerOut: () => void;
 }
+
+type ShaderLike = {
+  uniforms: Record<string, THREE.IUniform>;
+  vertexShader: string;
+  fragmentShader: string;
+};
