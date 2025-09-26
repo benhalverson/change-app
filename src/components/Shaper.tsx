@@ -9,6 +9,7 @@ export const Shaper = () => {
 	const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
 	const [material, setMaterial] = useState("#000000");
 	const [scale, setScale] = useState({ x: 1, y: 1, z: 1 });
+	const [targetDims, setTargetDims] = useState<{ x: number; y: number; z: number }>({ x: 0, y: 0, z: 0 });
 
 	const [hover, setHover] = useState(false);
 
@@ -125,10 +126,19 @@ export const Shaper = () => {
 				</Canvas>
 			</div>
 
-      <div>
-        <fieldset>
-          <legend>Absolute Size (mm)</legend>
-          {/* <LabeledNumber /> */}
+      <div className="grid md:grid-cols-3 gap-4 p-4 border-t bg-white/80">
+        <fieldset className="space-y-2">
+          <legend className="font-semibold">Absolute Size (mm)</legend>
+          <LabeledNumber label="Width (X)" value={targetDims.x} onChange={(value) => setTargetDims((t) => ({ ...t, x: value }))} />
+          <LabeledNumber label="Height (Y)" value={targetDims.y} onChange={(value) => setTargetDims((t) => ({ ...t, y: value }))} />
+          <LabeledNumber label="Depth (Z)" value={targetDims.z} onChange={(value) => setTargetDims((t) => ({ ...t, z: value }))} />
+        </fieldset>
+
+        <fieldset className="space-y-2">
+          <legend className="font-semibold">Scale</legend>
+          <LabeledNumber label="X" value={scale.x} onChange={(value) => setScale((s) => ({ ...s, x: value }))} step={0.1} />
+          <LabeledNumber label="Y" value={scale.y} onChange={(value) => setScale((s) => ({ ...s, y: value }))} step={0.1} />
+          <LabeledNumber label="Z" value={scale.z} onChange={(value) => setScale((s) => ({ ...s, z: value }))} step={0.1} />
         </fieldset>
 
       </div>
