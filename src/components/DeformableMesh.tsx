@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
+import type { Shader } from 'three';
 export const DeformableMesh = ({
 	geometry,
 	scaleVector,
@@ -10,8 +11,8 @@ export const DeformableMesh = ({
 	onPointerOver,
 	onPointerOut,
 }: Mesh) => {
-	const matRef = useRef<Three.MeshStandardMaterial>(null!);
-	const meshRef = useRef<Three.Mesh>(null!);
+	const matRef = useRef<THREE.MeshStandardMaterial>(null!);
+	const meshRef = useRef<THREE.Mesh>(null!);
 
 	const uniforms = useMemo(
 		() => ({
@@ -42,18 +43,60 @@ export const DeformableMesh = ({
 		geometry.computeBoundingBox();
 		const boundingBox = geometry.boundingBox;
 		const size = new THREE.Vector3();
-		boundingBox.getSize(size);
+		boundingBox?.getSize(size);
 		uniforms.uHeight.value = size.y;
 		uniforms.uMinY.value = Math.max(size.y, 1e-6);
 	}, [geometry, uniforms]);
 
-	const onBeforeCompile = (shader: THREE.Shader) => {
+	const onBeforeCompile = (shader: Shader) => {
 		shader.uniforms.uTwist = uniforms.uTwist;
 		shader.uniforms.uBend = uniforms.uBend;
 		shader.uniforms.uTaper = uniforms.uTaper;
 		shader.uniforms.uMinY = uniforms.uMinY;
 		shader.uniforms.uHeight = uniforms.uHeight;
 		shader.uniforms.uScale = uniforms.uScale;
+
+		shader.vertexShader = shader.vertexShader
+			.replace(
+				`#include <common>`,
+				`
+        #include <common>
+        uniform float uTwist;
+        uniform float uBend;
+        uniform float uTaper;
+        uniform float uMinY;
+        uniform float uHeight;
+        uniform vec3 uScale;
+        `
+			)
+			.replace(
+				`#include <begin_vertex>`,
+				`
+        #include <begin_vertex>
+
+        transformed *= uScale;
+
+        float h = clamp((transformed.y - uMinY) / max(uHeight, 1e-6), 0.0, 1.0);
+
+        float taperK = 1.0 + uTaper * (h - 0.5) * 2.0;
+        transformed.xz *= taperK;
+
+        float ang = uTwist * h;
+        float c = cos(ang);
+        float s = sin(ang);
+        mat2 R = mat2(c, -s, s, c);
+        transformed.xz = R * transformed.xz;
+
+        float bendAng = (h - 0.5) * uBend;
+        float cy = cos(bendAng);
+        float sy = sin(bendAng);
+        float yC = (h - 0.5) * uHeight;
+        float z2 = transformed.z * cy - yC * sy;
+        float y2 = transformed.z * sy + yC * cy;
+        transformed.z = z2;
+        transformed.y = y2 + uMinY + uHeight * 0.5;
+        `
+			);
 	};
 
 	return (
