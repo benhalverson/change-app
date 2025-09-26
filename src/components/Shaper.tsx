@@ -4,14 +4,23 @@ import * as THREE from "three";
 import { Environment, Grid, OrbitControls, useCursor } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import { STLExporter } from "three/examples/jsm/Addons.js";
 import { DeformableMesh } from "./DeformableMesh";
-import { LabeledNumber } from './LabeledNumber';
+import { LabeledNumber } from "./LabeledNumber";
 
 export const Shaper = () => {
 	const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
 	const [material, setMaterial] = useState("#000000");
 	const [scale, setScale] = useState({ x: 1, y: 1, z: 1 });
-	const [targetDims, setTargetDims] = useState<{ x: number; y: number; z: number }>({ x: 0, y: 0, z: 0 });
+	const [twist, setTwist] = useState(0);
+	const [bend, setBend] = useState(0);
+	const [taper, setTaper] = useState(0);
+	// Target dimensions in mm
+	const [targetDims, setTargetDims] = useState<{
+		x: number;
+		y: number;
+		z: number;
+	}>({ x: 0, y: 0, z: 0 });
 
 	const [hover, setHover] = useState(false);
 
@@ -57,10 +66,109 @@ export const Shaper = () => {
 		return geoClone;
 	}, [geometry]);
 
+	const absoluteScale = useMemo(() => {
+		if (!normalizeGeometry) return new THREE.Vector3(scale.x, scale.y, scale.z);
+		const bb: THREE.Box3 =
+			normalizeGeometry.__originalBBox || normalizeGeometry.boundingBox!;
+		const size = new THREE.Vector3();
+		bb.getSize(size);
+		const goal = new THREE.Vector3(
+			targetDims.x ?? size.x,
+			targetDims.y ?? size.y,
+			targetDims.z ?? size.z
+		);
+		return new THREE.Vector3(
+			(goal.x / size.x) * scale.x,
+			(goal.y / size.y) * scale.y,
+			(goal.z / size.z) * scale.z
+		);
+	}, [normalizeGeometry, targetDims, scale]);
+
+	const onExport = () => {
+		if (!normalizeGeometry) return;
+		// We need to bake modifiers + absolute scale to geometry before export.
+		const baked = applyModifiersAndScale(
+			normalizeGeometry,
+			{ twist, bend, taper },
+			absoluteScale
+		);
+		const exporter = new STLExporter();
+		const stlString = exporter.parse(new THREE.Mesh(baked));
+		const blob = new Blob([stlString], { type: "application/sla" });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = "model-modified.stl";
+		a.click();
+		URL.revokeObjectURL(url);
+	};
+
 	const onDrop = (e: React.DragEvent) => {
 		e.preventDefault();
 		handleFiles(e.dataTransfer.files);
 	};
+
+	function applyModifiersAndScale(
+		source: THREE.BufferGeometry,
+		mods: { twist: number; bend: number; taper: number },
+		scale: THREE.Vector3
+	) {
+		const geo = source.clone();
+		geo.computeBoundingBox();
+		const bb = geo.boundingBox!;
+		const size = new THREE.Vector3();
+		bb.getSize(size);
+		const minY = bb.min.y;
+		const height = Math.max(size.y, 1e-6);
+
+		const pos = geo.attributes.position as THREE.BufferAttribute;
+		const norm = geo.attributes.normal as THREE.BufferAttribute | undefined;
+		const v = new THREE.Vector3();
+
+		for (let i = 0; i < pos.count; i++) {
+			v.fromBufferAttribute(pos, i);
+
+			// Normalize height 0..1
+			const h = (v.y - minY) / height;
+
+			// Taper: scale in XZ along height
+			const taperK = 1.0 + mods.taper * (h - 0.5) * 2.0; // centered taper
+			v.x *= taperK;
+			v.z *= taperK;
+
+			// Twist: rotate around Y depending on height
+			const ang = mods.twist * h;
+			const cos = Math.cos(ang);
+			const sin = Math.sin(ang);
+			const x = v.x * cos - v.z * sin;
+			const z = v.x * sin + v.z * cos;
+			v.x = x;
+			v.z = z;
+
+			// Bend: simple bend around X axis across height
+			// Maps Y into an arc in YZ plane
+			const bendAng = (h - 0.5) * mods.bend; // center bend
+			const cy = Math.cos(bendAng);
+			const sy = Math.sin(bendAng);
+			const y = (h - 0.5) * height; // centered height
+			const z2 = v.z * cy - y * sy;
+			const y2 = v.z * sy + y * cy;
+			// restore absolute Y from centered y2
+			v.z = z2;
+			v.y = y2 + minY + height * 0.5;
+
+			// Apply absolute scale last
+			v.multiply(scale);
+
+			pos.setXYZ(i, v.x, v.y, v.z);
+		}
+
+		pos.needsUpdate = true;
+		geo.computeVertexNormals();
+		geo.computeBoundingBox();
+		geo.computeBoundingSphere();
+		return geo;
+	}
 
 	return (
 		<div className="w-full h-full grid bg-slate-50 text-slate-800">
@@ -69,51 +177,63 @@ export const Shaper = () => {
 					type="file"
 					accept=".stl,.obj"
 					onChange={(e) => handleFiles(e.target.files)}
+					className="block"
 				/>
-				<button className="px-3 py-1.5 rounded-2xl bg-slate-900 text-white disabled:opacity-50">
+				<button
+					onClick={onExport}
+					className="px-3 py-1.5 rounded-2xl bg-slate-900 text-white disabled:opacity-50"
+					disabled={!normalizeGeometry}
+				>
 					Export STL
 				</button>
-				<label>
-					<span className="ml-auto">Color:</span>
+				<div className="ml-auto flex items-center gap-2">
+					<label className="text-xs">Color</label>
 					<input
 						type="color"
-						className="text-xs"
 						value={material}
 						onChange={(e) => setMaterial(e.target.value)}
 					/>
-				</label>
+				</div>
 			</div>
 
 			<div
-				onDrop={onDrop}
+				className="relative"
 				onDragOver={(e) => e.preventDefault()}
-				onDropCapture={onDrop}
+				onDrop={onDrop}
 			>
 				{!normalizeGeometry && (
-					<div>
-						<p className="font-medium">Drop an STL here</p>
-						<p className="font-xs">or use the file picker</p>
+					<div className="absolute inset-0 pointer-events-none select-none grid place-items-center text-center text-slate-500">
+						<div>
+							<p className="font-medium">Drop an OBJ or STL here</p>
+							<p className="text-sm">or use the file picker above</p>
+						</div>
 					</div>
 				)}
-
-				<Canvas camera={{ position: [140, 140, 160], fov: 40 }} shadows>
-					<color attach="background" args={["#ffffff"]} />
+				<Canvas camera={{ position: [140, 120, 160], fov: 40 }} shadows>
+					<color attach="background" args={["#f6f8ff"]} />
 					<hemisphereLight
 						intensity={0.75}
-						groundColor={new THREE.Color("#cccccc")}
+						groundColor={new THREE.Color("#b9b9b9")}
+					/>
+					<directionalLight
+						position={[60, 80, 120]}
+						intensity={1.1}
+						castShadow
+						shadow-mapSize-width={2048}
+						shadow-mapSize-height={2048}
 					/>
 					<Suspense fallback={null}>
 						{normalizeGeometry && (
 							<DeformableMesh
 								geometry={normalizeGeometry}
-								scaleVector={new THREE.Vector3(scale.x, scale.y, scale.z)}
-								twist={0}
-								bend={0}
-								taper={0}
+								scaleVector={absoluteScale}
+								twist={twist}
+								bend={bend}
+								taper={taper}
 								color={material}
 								onPointerOver={() => setHover(true)}
 								onPointerOut={() => setHover(false)}
-							></DeformableMesh>
+							/>
 						)}
 						<Grid
 							infiniteGrid
@@ -128,22 +248,73 @@ export const Shaper = () => {
 				</Canvas>
 			</div>
 
-      <div className="grid md:grid-cols-3 gap-4 p-4 border-t bg-white/80">
-        <fieldset className="space-y-2">
-          <legend className="font-semibold">Absolute Size (mm)</legend>
-          <LabeledNumber label="Width (X)" value={targetDims.x} onChange={(value) => setTargetDims((t) => ({ ...t, x: value }))} />
-          <LabeledNumber label="Height (Y)" value={targetDims.y} onChange={(value) => setTargetDims((t) => ({ ...t, y: value }))} />
-          <LabeledNumber label="Depth (Z)" value={targetDims.z} onChange={(value) => setTargetDims((t) => ({ ...t, z: value }))} />
-        </fieldset>
+			<div className="grid md:grid-cols-3 gap-4 p-4 border-t bg-white/80">
+				<fieldset className="space-y-2">
+					<legend className="font-semibold">Absolute Size (mm)</legend>
+					<LabeledNumber
+						label="Width (X)"
+						value={targetDims.x}
+						onChange={(value) => setTargetDims((t) => ({ ...t, x: value }))}
+					/>
+					<LabeledNumber
+						label="Height (Y)"
+						value={targetDims.y}
+						onChange={(value) => setTargetDims((t) => ({ ...t, y: value }))}
+					/>
+					<LabeledNumber
+						label="Depth (Z)"
+						value={targetDims.z}
+						onChange={(value) => setTargetDims((t) => ({ ...t, z: value }))}
+					/>
+				</fieldset>
 
-        <fieldset className="space-y-2">
-          <legend className="font-semibold">Scale</legend>
-          <LabeledNumber label="X" value={scale.x} onChange={(value) => setScale((s) => ({ ...s, x: value }))} step={0.1} />
-          <LabeledNumber label="Y" value={scale.y} onChange={(value) => setScale((s) => ({ ...s, y: value }))} step={0.1} />
-          <LabeledNumber label="Z" value={scale.z} onChange={(value) => setScale((s) => ({ ...s, z: value }))} step={0.1} />
-        </fieldset>
+				<fieldset className="space-y-2">
+					<legend className="font-semibold">Scale</legend>
+					<LabeledNumber
+						label="X"
+						value={scale.x}
+						onChange={(value) => setScale((s) => ({ ...s, x: value }))}
+						step={0.1}
+					/>
+					<LabeledNumber
+						label="Y"
+						value={scale.y}
+						onChange={(value) => setScale((s) => ({ ...s, y: value }))}
+						step={0.1}
+					/>
+					<LabeledNumber
+						label="Z"
+						value={scale.z}
+						onChange={(value) => setScale((s) => ({ ...s, z: value }))}
+						step={0.1}
+					/>
+				</fieldset>
 
-      </div>
+				<fieldset className="space-y-2">
+					<legend className="font-semibold">Shape Modifiers</legend>
+					<LabeledNumber
+						label="Twist (rad per height)"
+						value={twist}
+						step={0.01}
+						onChange={setTwist}
+					/>
+					<LabeledNumber
+						label="Bend (radians)"
+						value={bend}
+						step={0.01}
+						onChange={setBend}
+					/>
+					<LabeledNumber
+						label="Taper (-1..1)"
+						value={taper}
+						step={0.01}
+						onChange={setTaper}
+					/>
+					<p className="text-xs text-slate-500">
+						Height is normalized (0 bottom → 1 top).
+					</p>
+				</fieldset>
+			</div>
 		</div>
 	);
 };
