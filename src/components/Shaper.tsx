@@ -122,7 +122,6 @@ export const Shaper = () => {
 		const height = Math.max(size.y, 1e-6);
 
 		const pos = geo.attributes.position as THREE.BufferAttribute;
-		const norm = geo.attributes.normal as THREE.BufferAttribute | undefined;
 		const v = new THREE.Vector3();
 
 		for (let i = 0; i < pos.count; i++) {
