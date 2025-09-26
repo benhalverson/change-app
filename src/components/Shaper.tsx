@@ -1,9 +1,10 @@
 import React, { Suspense, useMemo, useState } from "react";
 import * as THREE from "three";
-import { useCursor } from "@react-three/drei";
+import { Environment, Grid, OrbitControls, useCursor } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
-import { STLLoader } from "three/examples/jsm/loaders/STLLoader";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { DeformableMesh } from "./DeformableMesh";
+import { LabeledNumber } from './LabeledNumber';
 export const Shaper = () => {
 	const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
 	const [material, setMaterial] = useState("#000000");
@@ -111,9 +112,26 @@ export const Shaper = () => {
 								onPointerOut={() => setHover(false)}
 							></DeformableMesh>
 						)}
+						<Grid
+							infiniteGrid
+							fadeDistance={60}
+							cellSize={10}
+							sectionSize={100}
+							position={[0, -0.5, 0]}
+						/>
+						<Environment preset="city" />
 					</Suspense>
+					<OrbitControls makeDefault enableDamping dampingFactor={0.1} />
 				</Canvas>
 			</div>
+
+      <div>
+        <fieldset>
+          <legend>Absolute Size (mm)</legend>
+          {/* <LabeledNumber /> */}
+        </fieldset>
+
+      </div>
 		</div>
 	);
 };
